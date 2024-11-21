@@ -25,6 +25,7 @@ type Resource struct {
 }
 
 type OptimizedRes struct {
-	currentRes   Resource
-	recommendRes Resource
+	Resource
+	RecommendRes ResAllocation
+	Score        float64
 }

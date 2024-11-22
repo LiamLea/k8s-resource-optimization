@@ -26,3 +26,13 @@ func DumpToJsonFile(data interface{}, path string) {
 	}
 	DumpToFile(output, path)
 }
+
+func DumpHtmlTable(data []string, path string) {
+	var html = `<table>%s</table>`
+	var table string
+	var tmpl = `<tr><td>%s</td></tr>`
+	for _, v := range data {
+		table = table + "\n" + fmt.Sprintf(tmpl, v)
+	}
+	DumpToFile([]byte(fmt.Sprintf(html, table)), path)
+}

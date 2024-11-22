@@ -11,11 +11,11 @@ type ResAllocation struct {
 }
 
 type ResUsage struct {
-	Duration    float64
-	Cpu         float64
-	CpuRatio    float64
-	Memory      float64
-	MemoryRatio float64
+	Duration           float64
+	Cpu                []float64
+	CpuRequestRatio    float64
+	Memory             []float64
+	MemoryRequestRatio float64
 }
 
 type Resource struct {

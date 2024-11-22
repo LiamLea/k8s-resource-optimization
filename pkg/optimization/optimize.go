@@ -6,6 +6,7 @@ import (
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
+	"gonum.org/v1/gonum/stat"
 	"math"
 	"os"
 	"sort"
@@ -50,32 +51,54 @@ func (this *FindResFromPrometheus) QueryProm(query string) model.Value {
 	return result
 }
 
-func resLookup_item() map[string]float64 {
-	result := map[string]float64{
-		"cpuUsage":       -1,
-		"cpuRequests":    -1,
-		"cpuLimits":      -1,
-		"memoryUsage":    -1,
-		"memoryRequests": -1,
-		"memoryLimits":   -1,
+func resLookup_item() map[string]interface{} {
+	result := map[string]interface{}{
+		"cpuUsage":       []float64{},
+		"cpuRequests":    float64(-1),
+		"cpuLimits":      float64(-1),
+		"memoryUsage":    []float64{},
+		"memoryRequests": float64(-1),
+		"memoryLimits":   float64(-1),
 	}
 	return result
 }
 
-func buildResLookup(queryResult model.Value, storeKey string, podInfo map[string]map[string]string, receiver map[string]map[string]float64) {
+func (this *FindResFromPrometheus) buildRelationMap(receiver map[string]map[string]interface{}) map[string]string {
+	podControllerMap := make(map[string]string)
+	podDeploymentQuery := this.QueryProm("(kube_replicaset_owner * on(replicaset,namespace)  group_right(owner_kind,owner_name) label_replace(kube_pod_info{created_by_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"created_by_name\", \"(.*)\")) * on(pod,namespace) group_right(owner_kind,owner_name) kube_pod_container_info")
+	podControllersQuery := this.QueryProm("label_replace(label_replace(kube_pod_info{created_by_kind!=\"ReplicaSet\"}, \"owner_name\", \"$1\", \"created_by_name\", \"(.*)\"),\"owner_kind\", \"$1\", \"created_by_kind\", \"(.*)\") * on(pod,namespace) group_right(owner_kind,owner_name) kube_pod_container_info")
+	v1, ok1 := podDeploymentQuery.(model.Vector)
+	v2, ok2 := podControllersQuery.(model.Vector)
+	if ok1 && ok2 {
+		merged := append(v1, v2...)
+		for _, i := range merged {
+			if i.Metric["owner_kind"] != "Job" {
+				key := string(i.Metric["namespace"] + "/" + i.Metric["owner_kind"] + "/" + i.Metric["owner_name"] + "/" + i.Metric["container"])
+				receiver[key] = resLookup_item()
+
+				// fill podControllerMap
+				podControllerMap[string(i.Metric["namespace"]+"/"+i.Metric["pod"])] = string(i.Metric["namespace"] + "/" + i.Metric["owner_kind"] + "/" + i.Metric["owner_name"])
+			}
+		}
+	}
+
+	return podControllerMap
+}
+
+func buildResLookup(queryResult model.Value, storeKey string, podInfo map[string]string, receiver map[string]map[string]interface{}) {
 
 	if v, ok := queryResult.(model.Vector); ok {
 		for _, i := range v {
 			if i.Metric["container"] != "" {
-				podName := string(i.Metric["pod"])
-				if len(podInfo[podName]) != 0 && podInfo[podName]["createdByKind"] != "Job" {
-					key := string(i.Metric["namespace"]) + "/" + podInfo[podName]["createdByKind"] + "/" + podInfo[podName]["createdByName"] + "/" + string(i.Metric["container"])
-					if receiver[key] == nil {
-						receiver[key] = resLookup_item()
+				podName := string(i.Metric["namespace"] + "/" + i.Metric["pod"])
+				if len(podInfo[podName]) != 0 {
+					key := podInfo[podName] + "/" + string(i.Metric["container"])
+					if v1, ok1 := receiver[key][storeKey].([]float64); ok1 {
+						receiver[key][storeKey] = append(v1, float64(i.Value))
+					} else {
+						receiver[key][storeKey] = float64(i.Value)
 					}
-					receiver[key][storeKey] = float64(i.Value)
 				}
-
 			}
 		}
 	}
@@ -90,8 +113,8 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 		"cpuQualified":    {},
 	}
 	duration := this.Duration.Hours()
-	resLookup := make(map[string]map[string]float64)
-	podInfo := make(map[string]map[string]string)
+	resLookup := make(map[string]map[string]interface{})
+	podInfo := make(map[string]string)
 
 	// define prometheus query string
 	cpuUsageResult := this.QueryProm(fmt.Sprintf("quantile_over_time(0.95, sum by (cluster, namespace, pod, container) (irate(container_cpu_usage_seconds_total[5m]))[%.0fh:5m])", duration))
@@ -102,17 +125,10 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 	memoryRequestsResult := this.QueryProm("sum by (cluster, namespace, pod, container) (kube_pod_container_resource_requests{resource=\"memory\"})")
 	memoryLimitsResult := this.QueryProm("sum by (cluster, namespace, pod, container) (kube_pod_container_resource_limits{resource=\"memory\"})")
 
-	podInfoQuery := this.QueryProm("kube_pod_info")
+	//podInfoQuery := this.QueryProm("kube_pod_info")
 
-	// get pod info
-	if v, ok := podInfoQuery.(model.Vector); ok {
-		for _, i := range v {
-			podInfo[string(i.Metric["pod"])] = map[string]string{
-				"createdByKind": string(i.Metric["created_by_kind"]),
-				"createdByName": string(i.Metric["created_by_name"]),
-			}
-		}
-	}
+	// build relationship map
+	podInfo = this.buildRelationMap(resLookup)
 
 	// fill resources lookup
 	buildResLookup(cpuUsageResult, "cpuUsage", podInfo, resLookup)
@@ -122,37 +138,37 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 	buildResLookup(memoryRequestsResult, "memoryRequests", podInfo, resLookup)
 	buildResLookup(memoryLimitsResult, "memoryLimits", podInfo, resLookup)
 
-	// get resources which cpu usage/request <= 60%
+	// get all resources
 	for k, v := range resLookup {
 		res := Resource{
 			Id: k,
 			ResUsage: ResUsage{
-				Duration:    duration,
-				Cpu:         v["cpuUsage"],
-				CpuRatio:    -1,
-				Memory:      v["memoryUsage"],
-				MemoryRatio: -1,
+				Duration:           duration,
+				Cpu:                v["cpuUsage"].([]float64),
+				CpuRequestRatio:    -1,
+				Memory:             v["memoryUsage"].([]float64),
+				MemoryRequestRatio: -1,
 			},
 			ResAllocation: ResAllocation{
 				Requests: ComputeRes{
-					Cpu:    v["cpuRequests"],
-					Memory: v["memoryRequests"],
+					Cpu:    v["cpuRequests"].(float64),
+					Memory: v["memoryRequests"].(float64),
 				},
 				Limits: ComputeRes{
-					Cpu:    v["cpuLimits"],
-					Memory: v["memoryLimits"],
+					Cpu:    v["cpuLimits"].(float64),
+					Memory: v["memoryLimits"].(float64),
 				},
 			},
 		}
 		if v["cpuRequests"] != float64(-1) {
-			res.ResUsage.CpuRatio = float64(v["cpuUsage"] / v["cpuRequests"])
+			res.ResUsage.CpuRequestRatio = stat.Mean(v["cpuUsage"].([]float64), nil) / v["cpuRequests"].(float64)
 		}
 		if v["memoryRequests"] != float64(-1) {
-			res.ResUsage.MemoryRatio = float64(v["memoryUsage"] / v["memoryRequests"])
+			res.ResUsage.CpuRequestRatio = stat.Mean(v["memoryUsage"].([]float64), nil) / v["memoryRequests"].(float64)
 		}
 
 		// drop pods which are down
-		if v["cpuUsage"] != -1 && v["memoryUsage"] != -1 {
+		if len(v["cpuUsage"].([]float64)) != 0 && len(v["memoryUsage"].([]float64)) != 0 {
 			if v["cpuRequests"] == float64(-1) {
 				if v["memoryRequests"] == float64(-1) {
 					result["candidates"] = append(result["candidates"], res)
@@ -174,8 +190,8 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 
 func computeRecommend(res Resource) (float64, float64) {
 	// cpu unit: m, memory unit: M
-	cpuRecommend := math.Round(res.ResUsage.Cpu * 1000)
-	memoryRecommend := math.Round(res.ResUsage.Memory / (1024 * 1024))
+	cpuRecommend := math.Round(stat.Mean(res.ResUsage.Cpu, nil) * 1000)
+	memoryRecommend := math.Round(stat.Mean(res.ResUsage.Memory, nil) / (1024 * 1024))
 	if cpuRecommend < 1 {
 		cpuRecommend = 1
 	}
@@ -186,11 +202,11 @@ func computeRecommend(res Resource) (float64, float64) {
 	cpuRecommend = cpuRecommend / 1000
 	memoryRecommend = memoryRecommend * 1024 * 1024
 
-	if res.ResUsage.CpuRatio >= 1 {
+	if res.ResUsage.CpuRequestRatio >= 1 {
 		cpuRecommend = res.ResAllocation.Requests.Cpu
 	}
 
-	if res.ResUsage.MemoryRatio >= 1 {
+	if res.ResUsage.MemoryRequestRatio >= 1 {
 		memoryRecommend = res.ResAllocation.Requests.Memory
 	}
 
@@ -221,7 +237,7 @@ func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) 
 	merged = append(merged, resFound["cpuQualified"]...)
 	for _, i := range merged {
 
-		if i.ResUsage.CpuRatio < 1 || i.ResUsage.MemoryRatio < 1 {
+		if i.ResUsage.CpuRequestRatio < 1 || i.ResUsage.MemoryRequestRatio < 1 {
 
 			cpuRecommend, memoryRecommend := computeRecommend(i)
 

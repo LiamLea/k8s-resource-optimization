@@ -22,11 +22,10 @@
 ##### (1) Identify Resources
 * resource id: `<namespace>/<controller_type>/<controller_name>/<container_name>`
     * why this form:
-        * pods may be recreated by CICD so that pod name changes
         * use controller can trace the utilization of an application rather than a pod
 
 * resource categories
-    * common controllers: ReplicaSet (Deployment TODO), StatefulSet, DaemonSet
+    * common controllers: Deployment, StatefulSet, DaemonSet
     * cron job (TODO)
         * jobs run periodically 
 

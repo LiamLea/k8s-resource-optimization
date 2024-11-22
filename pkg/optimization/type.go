@@ -29,3 +29,15 @@ type OptimizedRes struct {
 	RecommendRes ResAllocation
 	Score        float64
 }
+
+type ReportDataItem struct {
+	Id     string
+	Score  string
+	Cpu    map[string]string
+	Memory map[string]string
+}
+type ReportData struct {
+	Title    string
+	Scored   []ReportDataItem
+	Unscored []ReportDataItem
+}

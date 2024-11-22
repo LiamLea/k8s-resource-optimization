@@ -39,7 +39,7 @@
 
 #### 2.Give Recommendations
 * resource recommendation
-    * cpu minimum: 10m
+    * cpu minimum: 1m
     * memory minimum: 1M
 * resource score
     * `score= cpu_reserved + memory_reserved / 1024*1024*1024*2`

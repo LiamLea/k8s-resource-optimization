@@ -3,12 +3,15 @@ package optimization
 import (
 	"context"
 	"fmt"
+	gh "github.com/dustin/go-humanize"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	"gonum.org/v1/gonum/stat"
+	"k8s-resource-optimization/pkg/utils"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"time"
 )
@@ -125,8 +128,6 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 	memoryRequestsResult := this.QueryProm("sum by (cluster, namespace, pod, container) (kube_pod_container_resource_requests{resource=\"memory\"})")
 	memoryLimitsResult := this.QueryProm("sum by (cluster, namespace, pod, container) (kube_pod_container_resource_limits{resource=\"memory\"})")
 
-	//podInfoQuery := this.QueryProm("kube_pod_info")
-
 	// build relationship map
 	podInfo = this.buildRelationMap(resLookup)
 
@@ -164,7 +165,7 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 			res.ResUsage.CpuRequestRatio = stat.Mean(v["cpuUsage"].([]float64), nil) / v["cpuRequests"].(float64)
 		}
 		if v["memoryRequests"] != float64(-1) {
-			res.ResUsage.CpuRequestRatio = stat.Mean(v["memoryUsage"].([]float64), nil) / v["memoryRequests"].(float64)
+			res.ResUsage.MemoryRequestRatio = stat.Mean(v["memoryUsage"].([]float64), nil) / v["memoryRequests"].(float64)
 		}
 
 		// drop pods which are down
@@ -189,11 +190,13 @@ func (this *FindResFromPrometheus) FindRes() map[string][]Resource {
 }
 
 func computeRecommend(res Resource) (float64, float64) {
-	// cpu unit: m, memory unit: M
-	cpuRecommend := math.Round(stat.Mean(res.ResUsage.Cpu, nil) * 1000)
-	memoryRecommend := math.Round(stat.Mean(res.ResUsage.Memory, nil) / (1024 * 1024))
-	if cpuRecommend < 1 {
-		cpuRecommend = 1
+	// collect: cpu unit: 1, memory unit: bytes
+	// covert:  cpu unit: m, memory unit: MB
+	cpuRecommend := math.Ceil(slices.Max(res.ResUsage.Cpu)*100) * 10
+	memoryRecommend := math.Ceil(slices.Max(res.ResUsage.Memory)/(1024*1024)/10) * 10
+
+	if cpuRecommend < 10 {
+		cpuRecommend = 10
 	}
 	if memoryRecommend < 1 {
 		memoryRecommend = 1
@@ -283,6 +286,35 @@ func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) 
 	sort.Slice(optimizedResult["scored"], func(i, j int) bool {
 		return optimizedResult["scored"][i].Score > optimizedResult["scored"][j].Score
 	})
+
+	// render html
+	data := ReportData{
+		Title: "Resource Report",
+	}
+	for n, i := range optimizedResult["scored"] {
+		if n > 10 {
+			break
+		}
+		item := ReportDataItem{
+			Id:    i.Id,
+			Score: fmt.Sprintf("%.2f", i.Score),
+			Cpu: map[string]string{
+				"usage":     fmt.Sprintf("%.0f m (%.1f%%)", stat.Mean(i.ResUsage.Cpu, nil)*1000, i.ResUsage.CpuRequestRatio*100),
+				"requests":  fmt.Sprintf("%.0f m", i.ResAllocation.Requests.Cpu*1000),
+				"recommend": fmt.Sprintf("%.0f m", i.RecommendRes.Requests.Cpu*1000),
+				"limits":    fmt.Sprintf("%.0f m", i.ResAllocation.Limits.Cpu*1000),
+			},
+			Memory: map[string]string{
+				"usage":     fmt.Sprintf("%s (%.1f%%)", gh.IBytes(uint64(int(stat.Mean(i.ResUsage.Memory, nil)))), i.ResUsage.MemoryRequestRatio*100),
+				"requests":  fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Requests.Memory))),
+				"recommend": fmt.Sprintf("%s", gh.IBytes(uint64(i.RecommendRes.Requests.Memory))),
+				"limits":    fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Limits.Memory))),
+			},
+		}
+		data.Scored = append(data.Scored, item)
+	}
+
+	utils.DumpHtmlTable("pkg/optimization/templates/recommend.html", data, "report.html")
 
 	return optimizedResult
 }

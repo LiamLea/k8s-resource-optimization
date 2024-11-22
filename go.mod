@@ -3,6 +3,7 @@ module k8s-resource-optimization
 go 1.23.2
 
 require (
+	github.com/dustin/go-humanize v1.0.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/common v0.60.1
 	gonum.org/v1/gonum v0.15.1

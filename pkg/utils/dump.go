@@ -3,6 +3,8 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"log"
 	"os"
 )
 
@@ -27,12 +29,21 @@ func DumpToJsonFile(data interface{}, path string) {
 	DumpToFile(output, path)
 }
 
-func DumpHtmlTable(data []string, path string) {
-	var html = `<table>%s</table>`
-	var table string
-	var tmpl = `<tr><td>%s</td></tr>`
-	for _, v := range data {
-		table = table + "\n" + fmt.Sprintf(tmpl, v)
+func DumpHtmlTable(tplPath string, data interface{}, output string) {
+
+	tmpl, err := template.ParseFiles(tplPath)
+	if err != nil {
+		log.Fatal(err)
 	}
-	DumpToFile([]byte(fmt.Sprintf(html, table)), path)
+
+	fobj, err := os.OpenFile(output, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer fobj.Close()
+
+	err = tmpl.Execute(fobj, data)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

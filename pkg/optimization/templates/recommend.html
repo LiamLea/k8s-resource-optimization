@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>{{.Title}}</title>
+        <style>
+            /* General table styles */
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+                font-family: Arial, sans-serif;
+            }
+
+            /* Header styles */
+            th {
+                background-color: #4CAF50; /* Green background for header */
+                color: white; /* White text */
+                padding: 12px;
+                text-align: left;
+            }
+
+            /* Table cell styles */
+            td {
+                padding: 10px;
+                text-align: left;
+                border: 1px solid #ddd; /* Light gray border */
+            }
+
+            /* Row hover effect */
+            tr:hover {
+                background-color: #f5f5f5; /* Light gray background on hover */
+            }
+
+            /* Alternate row colors for better readability */
+            tr:nth-child(even) {
+                background-color: #f9f9f9; /* Light gray for even rows */
+            }
+
+            /* Rowspan styling */
+            td[rowspan="2"] {
+                background-color: #f0f0f0; /* Light background for rowspan cells */
+                vertical-align: middle; /* Center-align text for rowspan cells */
+                font-weight: bold;
+            }
+
+            /* Add some spacing around the table */
+            table {
+                margin-top: 20px;
+                margin-bottom: 20px;
+            }
+
+            /* Add a border radius for smoother edges */
+            table, th, td {
+                border-radius: 8px;
+            }
+
+        </style>
+
+    </head>
+    <body>
+        <table>
+            <tr>
+                <th>
+                    Resource (Namespace/ControllerKind/ControllerName/container)
+                </th>
+                <th>Usage</th>
+                <th>Requests</th>
+                <th>Recommend</th>
+                <th>Limits</th>
+                <th>Scores</th>
+            </tr>
+            {{range .Scored}}
+            <tr>
+                <td rowspan="2">{{ .Id }}</td>
+                <td>CPU: {{ .Cpu.usage }} </td>
+                <td>{{ .Cpu.requests }}</td>
+                <td>{{ .Cpu.recommend }}</td>
+                <td>{{ .Cpu.limits }}</td>
+                <td rowspan="2">{{ .Score }}</td>
+            </tr>
+            <tr>
+                <td>memory: {{ .Memory.usage }}</td>
+                <td>{{ .Memory.requests }}</td>
+                <td>{{ .Memory.recommend }}</td>
+                <td>{{ .Memory.limits }}</td>
+            </tr>
+            {{end}}
+        </table>
+    </body>
+</html>

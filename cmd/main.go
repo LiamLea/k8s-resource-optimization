@@ -1,6 +1,10 @@
 package main
 
-import "k8s-resource-optimization/pkg/utils"
+import (
+	"k8s-resource-optimization/pkg/optimization"
+	"k8s-resource-optimization/pkg/utils"
+	"time"
+)
 
 func main() {
 	duration, _ := time.ParseDuration("24h")

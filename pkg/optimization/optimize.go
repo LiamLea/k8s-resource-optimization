@@ -54,18 +54,6 @@ func (this *FindResFromPrometheus) QueryProm(query string) model.Value {
 	return result
 }
 
-func resLookup_item() map[string]interface{} {
-	result := map[string]interface{}{
-		"cpuUsage":       []float64{},
-		"cpuRequests":    float64(-1),
-		"cpuLimits":      float64(-1),
-		"memoryUsage":    []float64{},
-		"memoryRequests": float64(-1),
-		"memoryLimits":   float64(-1),
-	}
-	return result
-}
-
 func (this *FindResFromPrometheus) buildRelationMap(receiver map[string]map[string]interface{}) map[string]string {
 	podControllerMap := make(map[string]string)
 	podDeploymentQuery := this.QueryProm("(kube_replicaset_owner * on(replicaset,namespace)  group_right(owner_kind,owner_name) label_replace(kube_pod_info{created_by_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"created_by_name\", \"(.*)\")) * on(pod,namespace) group_right(owner_kind,owner_name) kube_pod_container_info")
@@ -77,7 +65,14 @@ func (this *FindResFromPrometheus) buildRelationMap(receiver map[string]map[stri
 		for _, i := range merged {
 			if i.Metric["owner_kind"] != "Job" {
 				key := string(i.Metric["namespace"] + "/" + i.Metric["owner_kind"] + "/" + i.Metric["owner_name"] + "/" + i.Metric["container"])
-				receiver[key] = resLookup_item()
+				receiver[key] = map[string]interface{}{
+					"cpuUsage":       []float64{},
+					"cpuRequests":    float64(-1),
+					"cpuLimits":      float64(-1),
+					"memoryUsage":    []float64{},
+					"memoryRequests": float64(-1),
+					"memoryLimits":   float64(-1),
+				}
 
 				// fill podControllerMap
 				podControllerMap[string(i.Metric["namespace"]+"/"+i.Metric["pod"])] = string(i.Metric["namespace"] + "/" + i.Metric["owner_kind"] + "/" + i.Metric["owner_name"])
@@ -288,8 +283,12 @@ func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) 
 	})
 
 	// render html
+	now := time.Now()
+	timeAfterDuration := now.Add(-this.Duration)
 	data := ReportData{
-		Title: "Resource Report",
+		Title:    "Resource Report",
+		Duration: fmt.Sprintf("%s to %s", timeAfterDuration.Format("2006-01-02 15:04:00"), now.Format("2006-01-02 15:04:00")),
+		PromUrl:  this.PromUrl,
 	}
 	for n, i := range optimizedResult["scored"] {
 		if n > 10 {

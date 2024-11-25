@@ -38,6 +38,8 @@ type ReportDataItem struct {
 }
 type ReportData struct {
 	Title    string
+	Duration string
+	PromUrl  string
 	Scored   []ReportDataItem
 	Unscored []ReportDataItem
 }

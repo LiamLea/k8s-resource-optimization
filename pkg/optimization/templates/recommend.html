@@ -55,10 +55,39 @@
                 border-radius: 8px;
             }
 
+            .overview {
+                background-color: #f9f9f9;
+                padding: 20px;
+                margin-bottom: 20px;
+                border-radius: 8px;
+                font-family: Arial, sans-serif;
+            }
+
+            .overview h2 {
+                margin-top: 0;
+                font-size: 1.5em;
+                color: #333;
+            }
+
+            .overview p {
+                font-size: 1.1em;
+                color: #555;
+            }
+
+            .overview .info {
+                font-weight: bold;
+            }
         </style>
 
     </head>
     <body>
+    <div class="overview">
+        <h2>Resource Report Overview</h2>
+        <p><span class="info">Duration:</span> {{ .Duration }}</p>
+        <p><span class="info">Cluster Name:</span> shared-k8s-test</p>
+        <p><span class="info">Prometheus:</span> <a href={{ .PromUrl }} target="_blank">Visit Prometheus</a>
+        </p>
+    </div>
         <table>
             <tr>
                 <th>

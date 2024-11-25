@@ -39,10 +39,10 @@ func (this *FindResFromPrometheus) QueryProm(query string) model.Value {
 	}
 
 	v1api := v1.NewAPI(client)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	fmt.Println(query)
-	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(5*time.Second))
+	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(60*time.Second))
 	if err != nil {
 		fmt.Printf("Error querying Prometheus: %v\n", err)
 		os.Exit(1)
@@ -91,10 +91,14 @@ func buildResLookup(queryResult model.Value, storeKey string, podInfo map[string
 				podName := string(i.Metric["namespace"] + "/" + i.Metric["pod"])
 				if len(podInfo[podName]) != 0 {
 					key := podInfo[podName] + "/" + string(i.Metric["container"])
-					if v1, ok1 := receiver[key][storeKey].([]float64); ok1 {
-						receiver[key][storeKey] = append(v1, float64(i.Value))
+					if _, ok := receiver[key]; ok {
+						if v1, ok1 := receiver[key][storeKey].([]float64); ok1 {
+							receiver[key][storeKey] = append(v1, float64(i.Value))
+						} else {
+							receiver[key][storeKey] = float64(i.Value)
+						}
 					} else {
-						receiver[key][storeKey] = float64(i.Value)
+						fmt.Printf("k8s doesn't have the resource: %s when building %s\n", key, storeKey)
 					}
 				}
 			}

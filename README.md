@@ -35,12 +35,12 @@
 * test env
     * cpu: 95 quantile < requests
     * memory: max < requests
-    * duration: 1d
+    * duration: 1 week
 
 #### 2.Give Recommendations
 * resource recommendation
-    * cpu minimum: 1m
-    * memory minimum: 1M
+    * cpu minimum: 10m
+    * memory minimum: 10M
 * resource score
-    * `score= cpu_reserved + memory_reserved / (1024*1024*1024*2)`
+    * `score= (cpu_reserved + memory_reserved / (1024*1024*1024*2)) * replicas`
         * cpu weight is `1`, memory weight is `1/(1024*1024*1024*2)` (refer to 1C/2G)

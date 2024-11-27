@@ -215,18 +215,69 @@ func computeRecommend(res Resource) (float64, float64) {
 	return cpuRecommend, memoryRecommend
 }
 
-func computeScore(originAllocation ResAllocation, recommendAllocation ResAllocation) float64 {
+func computeScore(originAllocation ResAllocation, recommendAllocation ResAllocation, rsn int) float64 {
 	var score float64
 	if originAllocation.Requests.Cpu == -1 {
-		score = (originAllocation.Requests.Memory - recommendAllocation.Requests.Memory) / (1024 * 1024 * 1024 * 2)
+		score = math.Max(0, originAllocation.Requests.Memory-recommendAllocation.Requests.Memory) / (1024 * 1024 * 1024 * 2) * float64(rsn)
 
 	} else if originAllocation.Requests.Memory == -1 {
-		score = originAllocation.Requests.Cpu - recommendAllocation.Requests.Cpu
+		score = math.Max(0, originAllocation.Requests.Cpu-recommendAllocation.Requests.Cpu) * float64(rsn)
 
 	} else {
-		score = (originAllocation.Requests.Cpu - recommendAllocation.Requests.Cpu) + (originAllocation.Requests.Memory-recommendAllocation.Requests.Memory)/(1024*1024*1024*2)
+		score = (math.Max(0, originAllocation.Requests.Cpu-recommendAllocation.Requests.Cpu) + math.Max(0, originAllocation.Requests.Memory-recommendAllocation.Requests.Memory)/(1024*1024*1024*2)) * float64(rsn)
 	}
 	return score
+}
+
+func (this *FindResFromPrometheus) GenReport(optimizedResult map[string][]OptimizedRes) {
+	// render html
+	now := time.Now()
+	timeAfterDuration := now.Add(-this.Duration)
+	data := ReportData{
+		Title:    "Resource Report",
+		Duration: fmt.Sprintf("%s to %s", timeAfterDuration.Format("2006-01-02 15:04:00"), now.Format("2006-01-02 15:04:00")),
+		PromUrl:  this.PromUrl,
+	}
+	for n, i := range optimizedResult["scored"] {
+		if n > 10 {
+			break
+		}
+		item := ReportDataItem{
+			Id:    i.Id,
+			Score: fmt.Sprintf("%.2f", i.Score),
+			Cpu: map[string]string{
+				"usage":     fmt.Sprintf("%.0f m (%.1f%%)", stat.Mean(i.ResUsage.Cpu, nil)*1000, i.ResUsage.CpuRequestRatio*100),
+				"requests":  fmt.Sprintf("%.0f m", i.ResAllocation.Requests.Cpu*1000),
+				"recommend": fmt.Sprintf("%.0f m", i.RecommendRes.Requests.Cpu*1000),
+				"limits":    fmt.Sprintf("%.0f m", i.ResAllocation.Limits.Cpu*1000),
+			},
+			Memory: map[string]string{
+				"usage":     fmt.Sprintf("%s (%.1f%%)", gh.IBytes(uint64(int(stat.Mean(i.ResUsage.Memory, nil)))), i.ResUsage.MemoryRequestRatio*100),
+				"requests":  fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Requests.Memory))),
+				"recommend": fmt.Sprintf("%s", gh.IBytes(uint64(i.RecommendRes.Requests.Memory))),
+				"limits":    fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Limits.Memory))),
+			},
+		}
+		if i.ResAllocation.Requests.Cpu == -1 {
+			item.Cpu["requests"] = "-1"
+			item.Cpu["usage"] = fmt.Sprintf("%.0f m", stat.Mean(i.ResUsage.Cpu, nil)*1000)
+		}
+		if i.ResAllocation.Limits.Cpu == -1 {
+			item.Cpu["limits"] = "-1"
+		}
+		if i.ResAllocation.Requests.Memory == -1 {
+			item.Memory["requests"] = "-1"
+			item.Memory["usage"] = fmt.Sprintf("%s", gh.IBytes(uint64(int(stat.Mean(i.ResUsage.Memory, nil)))))
+		}
+		if i.ResAllocation.Limits.Memory == -1 {
+			item.Memory["limits"] = "-1"
+		}
+		data.Scored = append(data.Scored, item)
+	}
+	os.RemoveAll("reports")
+	os.Mkdir("reports", 0733)
+	utils.DumpHtmlTable("pkg/optimization/templates/recommend.html", data, "reports/report.html")
+	utils.DumpToJsonFile(optimizedResult, "reports/output.json")
 }
 
 func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) map[string][]OptimizedRes {
@@ -250,7 +301,7 @@ func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) 
 				},
 			}
 
-			score := computeScore(i.ResAllocation, resAllocation)
+			score := computeScore(i.ResAllocation, resAllocation, len(i.ResUsage.Cpu))
 			optimizedRes := OptimizedRes{
 				Resource:     i,
 				RecommendRes: resAllocation,
@@ -286,38 +337,6 @@ func (this *FindResFromPrometheus) RecommendRes(resFound map[string][]Resource) 
 		return optimizedResult["scored"][i].Score > optimizedResult["scored"][j].Score
 	})
 
-	// render html
-	now := time.Now()
-	timeAfterDuration := now.Add(-this.Duration)
-	data := ReportData{
-		Title:    "Resource Report",
-		Duration: fmt.Sprintf("%s to %s", timeAfterDuration.Format("2006-01-02 15:04:00"), now.Format("2006-01-02 15:04:00")),
-		PromUrl:  this.PromUrl,
-	}
-	for n, i := range optimizedResult["scored"] {
-		if n > 10 {
-			break
-		}
-		item := ReportDataItem{
-			Id:    i.Id,
-			Score: fmt.Sprintf("%.2f", i.Score),
-			Cpu: map[string]string{
-				"usage":     fmt.Sprintf("%.0f m (%.1f%%)", stat.Mean(i.ResUsage.Cpu, nil)*1000, i.ResUsage.CpuRequestRatio*100),
-				"requests":  fmt.Sprintf("%.0f m", i.ResAllocation.Requests.Cpu*1000),
-				"recommend": fmt.Sprintf("%.0f m", i.RecommendRes.Requests.Cpu*1000),
-				"limits":    fmt.Sprintf("%.0f m", i.ResAllocation.Limits.Cpu*1000),
-			},
-			Memory: map[string]string{
-				"usage":     fmt.Sprintf("%s (%.1f%%)", gh.IBytes(uint64(int(stat.Mean(i.ResUsage.Memory, nil)))), i.ResUsage.MemoryRequestRatio*100),
-				"requests":  fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Requests.Memory))),
-				"recommend": fmt.Sprintf("%s", gh.IBytes(uint64(i.RecommendRes.Requests.Memory))),
-				"limits":    fmt.Sprintf("%s", gh.IBytes(uint64(i.ResAllocation.Limits.Memory))),
-			},
-		}
-		data.Scored = append(data.Scored, item)
-	}
-
-	utils.DumpHtmlTable("pkg/optimization/templates/recommend.html", data, "report.html")
-
+	this.GenReport(optimizedResult)
 	return optimizedResult
 }
